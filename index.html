@@ -80,6 +80,38 @@
             from { opacity: 0; transform: translateY(-10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* <-- CAMBIO 3: Estilos para el contenedor de notificaciones */
+        #notification-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast-notification {
+            padding: 12px 20px;
+            border-radius: 0.5rem;
+            color: white;
+            font-size: 0.875rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-in 3.5s forwards;
+        }
+        .toast-notification.success { background-color: #10b981; }
+        .toast-notification.error { background-color: #ef4444; }
+        .toast-notification.info { background-color: #3b82f6; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; transform: translateY(20px); }
+        }
+        /* Fin del cambio 3 */
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 p-4 md:p-8">
@@ -167,9 +199,6 @@
                 </div>
             </div>
             <div class="mt-6 text-center space-x-4">
-                 <button id="saveDataBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition duration-150 ease-in-out">
-                    Guardar Cambios Manualmente
-                </button>
                  <button id="generatePdfBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition duration-150 ease-in-out">
                     Generar Reporte PDF
                 </button>
@@ -250,6 +279,8 @@
         </div>
     </div>
 
+    <div id="notification-container"></div>
+
     <script>
         // Asegurarse de que jspdf esté disponible globalmente
         const { jsPDF } = window.jspdf;
@@ -278,8 +309,7 @@
         const totalIncomeEl = document.getElementById('totalIncome');
         const totalExpensesEl = document.getElementById('totalExpenses');
         const currentBalanceEl = document.getElementById('currentBalance');
-        const saveDataBtn = document.getElementById('saveDataBtn');
-        const generatePdfBtn = document.getElementById('generatePdfBtn'); // Botón PDF
+        const generatePdfBtn = document.getElementById('generatePdfBtn');
 
         // Modal de edición
         const editModal = document.getElementById('editModal');
@@ -305,15 +335,39 @@
             egreso: ['Alquiler/Hipoteca', 'Comida', 'Transporte', 'Servicios (Luz, Agua, Gas)', 'Entretenimiento', 'Salud', 'Educación', 'Ropa', 'Impuestos', 'Otros Gastos']
         };
 
+        // --- CAMBIO 3: Lógica para el sistema de notificaciones ---
+        const notificationContainer = document.getElementById('notification-container');
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `toast-notification ${type}`;
+            notification.textContent = message;
+            notificationContainer.appendChild(notification);
+            setTimeout(() => {
+                notification.remove();
+            }, 4000); // La notificación desaparece después de 4 segundos
+        }
+        // --- Fin del cambio 3 ---
+
+        // --- CAMBIO 1: Función centralizada para guardar el estado ---
+        function saveState() {
+            try {
+                localStorage.setItem('transactions', JSON.stringify(transactions));
+                localStorage.setItem('categories', JSON.stringify(categories));
+            } catch (error) {
+                console.error("Error al guardar en localStorage:", error);
+                showNotification("No se pudieron guardar los cambios.", "error");
+            }
+        }
+        // --- Fin del cambio 1 ---
+
+
         // --- Funciones auxiliares ---
         const formatCurrency = (amount) => {
-            // Usar toLocaleString para formato de moneda local (ej. ARS)
             return amount.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
         };
 
         const formatDate = (dateString) => {
             const date = new Date(dateString);
-            // Formato DD/MM/AAAA
             return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
         }
 
@@ -333,43 +387,45 @@
             populateCategoryOptions(categoryInput, currentType);
         }
 
+        // --- CAMBIO 4: Función reutilizable para visibilidad de secciones de egreso ---
+        function updateExpenseSectionsVisibility(isEgreso, expenseDivSection, installSection) {
+            expenseDivSection.classList.toggle('hidden', !isEgreso);
+            installSection.classList.toggle('hidden', !isEgreso);
+        }
+
+        // --- CAMBIO 4: Función reutilizable para la UI de las cuotas ---
+        function toggleInstallmentUI(checkbox, detailsDiv, totalInput, paidInput) {
+            const isChecked = checkbox.checked;
+            detailsDiv.classList.toggle('hidden', !isChecked);
+            totalInput.required = isChecked;
+            paidInput.required = isChecked;
+            if (!isChecked) {
+                totalInput.value = '';
+                paidInput.value = '';
+            }
+        }
+        // --- Fin del cambio 4 ---
+
         // --- Lógica de UI (Mostrar/Ocultar secciones) ---
         transactionTypeInput.addEventListener('change', () => {
             updateCategorySelectors();
             const isEgreso = transactionTypeInput.value === 'egreso';
             
-            installmentsSection.classList.toggle('hidden', !isEgreso);
-            expenseDivisionSection.classList.toggle('hidden', !isEgreso);
+            updateExpenseSectionsVisibility(isEgreso, expenseDivisionSection, installmentsSection); // <-- CAMBIO 4
 
             if (!isEgreso) {
                 isInstallmentCheckbox.checked = false;
-                installmentDetailsDiv.classList.add('hidden');
-                totalInstallmentsInput.required = false;
-                paidInstallmentsInput.required = false;
-                totalInstallmentsInput.value = '';
-                paidInstallmentsInput.value = '';
+                toggleInstallmentUI(isInstallmentCheckbox, installmentDetailsDiv, totalInstallmentsInput, paidInstallmentsInput); // <-- CAMBIO 4
                 expenseDivisionFactorSelect.value = '1'; 
             }
         });
 
         isInstallmentCheckbox.addEventListener('change', () => {
-            installmentDetailsDiv.classList.toggle('hidden', !isInstallmentCheckbox.checked);
-            totalInstallmentsInput.required = isInstallmentCheckbox.checked;
-            paidInstallmentsInput.required = isInstallmentCheckbox.checked;
-            if (!isInstallmentCheckbox.checked) {
-                totalInstallmentsInput.value = '';
-                paidInstallmentsInput.value = '';
-            }
+            toggleInstallmentUI(isInstallmentCheckbox, installmentDetailsDiv, totalInstallmentsInput, paidInstallmentsInput); // <-- CAMBIO 4
         });
         
         editIsInstallmentCheckbox.addEventListener('change', () => {
-            editInstallmentDetailsDiv.classList.toggle('hidden', !editIsInstallmentCheckbox.checked);
-            editTotalInstallmentsInput.required = editIsInstallmentCheckbox.checked;
-            editPaidInstallmentsInput.required = editIsInstallmentCheckbox.checked;
-            if (!editIsInstallmentCheckbox.checked) {
-                editTotalInstallmentsInput.value = ''; 
-                editPaidInstallmentsInput.value = '';  
-            }
+            toggleInstallmentUI(editIsInstallmentCheckbox, editInstallmentDetailsDiv, editTotalInstallmentsInput, editPaidInstallmentsInput); // <-- CAMBIO 4
         });
 
         // --- Lógica de Datos (CRUD + Guardado) ---
@@ -381,22 +437,21 @@
             if (newCat && !categories[type].includes(newCat)) {
                 categories[type].push(newCat);
                 categories[type].sort();
-                localStorage.setItem('categories', JSON.stringify(categories)); 
                 updateCategorySelectors();
                 categoryInput.value = newCat; 
-                newCategoryInput.value = ''; 
+                newCategoryInput.value = '';
+                saveState(); // <-- CAMBIO 1
+                showNotification('Categoría agregada con éxito.', 'success'); // <-- CAMBIO 3
             } else if (categories[type].includes(newCat)) {
-                alert('Esa categoría ya existe.');
+                showNotification('Esa categoría ya existe.', 'error'); // <-- CAMBIO 3
             } else {
-                alert('Por favor, ingresa un nombre para la nueva categoría.');
+                showNotification('Por favor, ingresa un nombre para la nueva categoría.', 'error'); // <-- CAMBIO 3
             }
         });
 
         function renderTransactions() {
             transactionTableBody.innerHTML = ''; 
-
             noTransactionsMessage.classList.toggle('hidden', transactions.length > 0);
-
             transactions.sort((a, b) => new Date(b.date) - new Date(a.date)); 
 
             transactions.forEach(t => {
@@ -415,6 +470,7 @@
                     amountDisplay += ` <span class="text-xs text-gray-500">(${100/t.divisionFactor}%)</span>`;
                 }
 
+                // <-- CAMBIO 2: Se eliminan los 'onclick' y se añaden 'data-action' y 'data-id'
                 row.innerHTML = `
                     <td class="px-4 py-3 whitespace-nowrap text-sm ${t.type === 'ingreso' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}">${t.type.charAt(0).toUpperCase() + t.type.slice(1)}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${t.description}</td>
@@ -423,15 +479,14 @@
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${installmentText}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${formatDate(t.date)}</td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm font-medium space-x-2">
-                        ${t.type === 'egreso' && t.isInstallment && t.paidInstallments < t.totalInstallments ? `<button onclick="markInstallmentPaid('${t.id}')" class="action-button installment-paid-button" title="Marcar cuota como pagada">+</button>` : ''}
-                        <button onclick="openEditModal('${t.id}')" class="action-button edit-button">Editar</button>
-                        <button onclick="deleteTransaction('${t.id}')" class="action-button delete-button">Eliminar</button>
+                        ${t.type === 'egreso' && t.isInstallment && t.paidInstallments < t.totalInstallments ? `<button data-id="${t.id}" data-action="pay-installment" class="action-button installment-paid-button" title="Marcar cuota como pagada">+</button>` : ''}
+                        <button data-id="${t.id}" data-action="edit" class="action-button edit-button">Editar</button>
+                        <button data-id="${t.id}" data-action="delete" class="action-button delete-button">Eliminar</button>
                     </td>
                 `;
                 transactionTableBody.appendChild(row);
             });
             updateSummary();
-            localStorage.setItem('transactions', JSON.stringify(transactions)); 
         }
 
         function updateSummary() {
@@ -458,12 +513,11 @@
             const category = categoryInput.value;
             const date = new Date().toISOString();
 
-            if (!category) { alert('Por favor, selecciona o agrega una categoría.'); return; }
-            if (isNaN(enteredAmount) || enteredAmount <=0) { alert('Por favor, ingresa un monto válido.'); return; }
+            if (!category) { showNotification('Por favor, selecciona o agrega una categoría.', 'error'); return; }
+            if (isNaN(enteredAmount) || enteredAmount <=0) { showNotification('Por favor, ingresa un monto válido.', 'error'); return; }
 
             let finalAmount = enteredAmount;
             let divisionFactor = 1;
-            let originalAmount = enteredAmount;
 
             if (type === 'egreso') {
                 divisionFactor = parseInt(expenseDivisionFactorSelect.value) || 1;
@@ -472,7 +526,7 @@
 
             const newTransaction = {
                 id: 'tx_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9), 
-                type, description, amount: finalAmount, originalAmount: originalAmount, 
+                type, description, amount: finalAmount, originalAmount: enteredAmount, 
                 divisionFactor: divisionFactor, category, date, isInstallment: false
             };
 
@@ -480,8 +534,8 @@
                 const totalInstallments = parseInt(totalInstallmentsInput.value);
                 const paidInstallments = parseInt(paidInstallmentsInput.value);
 
-                if (isNaN(totalInstallments) || totalInstallments <= 0) { alert('El total de cuotas debe ser un número positivo.'); return; }
-                if (isNaN(paidInstallments) || paidInstallments < 0 || paidInstallments > totalInstallments) { alert('Las cuotas abonadas deben ser un número válido y no mayor al total de cuotas.'); return; }
+                if (isNaN(totalInstallments) || totalInstallments <= 0) { showNotification('El total de cuotas debe ser un número positivo.', 'error'); return; }
+                if (isNaN(paidInstallments) || paidInstallments < 0 || paidInstallments > totalInstallments) { showNotification('Las cuotas abonadas no son válidas.', 'error'); return; }
                 newTransaction.isInstallment = true;
                 newTransaction.totalInstallments = totalInstallments;
                 newTransaction.paidInstallments = paidInstallments;
@@ -489,38 +543,61 @@
             
             transactions.push(newTransaction);
             renderTransactions();
+            saveState(); // <-- CAMBIO 1
+            showNotification('Transacción agregada.', 'success'); // <-- CAMBIO 3
             transactionForm.reset();
             
-            installmentsSection.classList.add('hidden'); 
-            expenseDivisionSection.classList.add('hidden');
+            updateExpenseSectionsVisibility(false, expenseDivisionSection, installmentsSection); // <-- CAMBIO 4
             isInstallmentCheckbox.checked = false;
-            installmentDetailsDiv.classList.add('hidden');
-            totalInstallmentsInput.required = false;
-            paidInstallmentsInput.required = false;
+            toggleInstallmentUI(isInstallmentCheckbox, installmentDetailsDiv, totalInstallmentsInput, paidInstallmentsInput); // <-- CAMBIO 4
             expenseDivisionFactorSelect.value = '1';
             transactionTypeInput.value = 'ingreso'; 
             updateCategorySelectors(); 
         });
 
-        window.markInstallmentPaid = (id) => {
+        function markInstallmentPaid(id) {
             const transactionIndex = transactions.findIndex(t => t.id === id);
             if (transactionIndex > -1) {
                 const transaction = transactions[transactionIndex];
                 if (transaction.isInstallment && transaction.paidInstallments < transaction.totalInstallments) {
                     transaction.paidInstallments += 1;
-                    renderTransactions(); 
+                    renderTransactions();
+                    saveState(); // <-- CAMBIO 1
                 }
             }
         }
 
-        window.deleteTransaction = (id) => {
-            if (confirm('¿Estás seguro de que quieres eliminar esta transacción?')) {
-                transactions = transactions.filter(t => t.id !== id);
-                renderTransactions(); 
-            }
+        function deleteTransaction(id) {
+            transactions = transactions.filter(t => t.id !== id);
+            renderTransactions();
+            saveState(); // <-- CAMBIO 1
+            showNotification('Transacción eliminada.', 'info'); // <-- CAMBIO 3
         }
         
-        window.openEditModal = (id) => {
+        // <-- CAMBIO 2: Listener centralizado para acciones de la tabla
+        transactionTableBody.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+
+            const { action, id } = button.dataset;
+
+            switch (action) {
+                case 'delete':
+                    if (confirm('¿Estás seguro de que quieres eliminar esta transacción?')) {
+                         deleteTransaction(id);
+                    }
+                    break;
+                case 'edit':
+                    openEditModal(id);
+                    break;
+                case 'pay-installment':
+                    markInstallmentPaid(id);
+                    break;
+            }
+        });
+
+
+        function openEditModal(id) {
             const transaction = transactions.find(t => t.id === id);
             if (!transaction) return;
 
@@ -532,32 +609,25 @@
             editCategoryInput.value = transaction.category;
 
             const isEgreso = transaction.type === 'egreso';
-            editExpenseDivisionSectionModal.classList.toggle('hidden', !isEgreso);
-            editInstallmentsSection.classList.toggle('hidden', !isEgreso);
+            updateExpenseSectionsVisibility(isEgreso, editExpenseDivisionSectionModal, editInstallmentsSection); // <-- CAMBIO 4
 
             if (isEgreso) {
                 editExpenseDivisionFactorModalSelect.value = transaction.divisionFactor || '1';
-                
                 editIsInstallmentCheckbox.checked = transaction.isInstallment || false;
-                editInstallmentDetailsDiv.classList.toggle('hidden', !transaction.isInstallment);
-                editTotalInstallmentsInput.required = !!transaction.isInstallment;
-                editPaidInstallmentsInput.required = !!transaction.isInstallment;
+                toggleInstallmentUI(editIsInstallmentCheckbox, editInstallmentDetailsDiv, editTotalInstallmentsInput, editPaidInstallmentsInput); // <-- CAMBIO 4
                 if (transaction.isInstallment) {
                     editTotalInstallmentsInput.value = transaction.totalInstallments;
                     editPaidInstallmentsInput.value = transaction.paidInstallments;
-                } else {
-                    editTotalInstallmentsInput.value = '';
-                    editPaidInstallmentsInput.value = '';
                 }
             } else {
                  editIsInstallmentCheckbox.checked = false;
-                 editInstallmentDetailsDiv.classList.add('hidden');
+                 toggleInstallmentUI(editIsInstallmentCheckbox, editInstallmentDetailsDiv, editTotalInstallmentsInput, editPaidInstallmentsInput); // <-- CAMBIO 4
             }
             
             editModal.style.display = 'block';
         }
 
-        window.closeEditModal = () => {
+        function closeEditModal() {
             editModal.style.display = 'none';
             editForm.reset(); 
         }
@@ -571,8 +641,8 @@
                 const originalTransactionType = transactions[transactionIndex].type; 
                 
                 const enteredAmount = parseFloat(editAmountInput.value); 
-                if (isNaN(enteredAmount) || enteredAmount <=0) { alert('Por favor, ingresa un monto válido.'); return; }
-                if (!editCategoryInput.value) { alert('Por favor, selecciona una categoría para la transacción editada.'); return; }
+                if (isNaN(enteredAmount) || enteredAmount <=0) { showNotification('Por favor, ingresa un monto válido.', 'error'); return; }
+                if (!editCategoryInput.value) { showNotification('Por favor, selecciona una categoría.', 'error'); return; }
 
                 transactions[transactionIndex].description = editDescriptionInput.value;
                 transactions[transactionIndex].category = editCategoryInput.value;
@@ -587,8 +657,8 @@
                         const total = parseInt(editTotalInstallmentsInput.value);
                         const paid = parseInt(editPaidInstallmentsInput.value);
 
-                        if (isNaN(total) || total <= 0) { alert('El total de cuotas debe ser un número positivo.'); return; }
-                        if (isNaN(paid) || paid < 0 || paid > total) { alert('Las cuotas abonadas deben ser un número válido y no mayor al total.'); return; }
+                        if (isNaN(total) || total <= 0) { showNotification('El total de cuotas debe ser un número positivo.', 'error'); return; }
+                        if (isNaN(paid) || paid < 0 || paid > total) { showNotification('Las cuotas abonadas no son válidas.', 'error'); return; }
                         transactions[transactionIndex].totalInstallments = total;
                         transactions[transactionIndex].paidInstallments = paid;
                     } else {
@@ -600,43 +670,36 @@
                     transactions[transactionIndex].divisionFactor = 1; 
                 }
                 renderTransactions(); 
+                saveState(); // <-- CAMBIO 1
                 closeEditModal();
+                showNotification('Transacción actualizada.', 'success'); // <-- CAMBIO 3
             }
         });
         
-        saveDataBtn.addEventListener('click', () => {
-            localStorage.setItem('transactions', JSON.stringify(transactions));
-            localStorage.setItem('categories', JSON.stringify(categories));
-            alert('¡Datos guardados manualmente en el almacenamiento local!');
-        });
-
-        // --- Generación de PDF ---
+        // --- Generación de PDF (sin cambios) ---
         function generatePDF() {
             if (transactions.length === 0) {
-                alert("No hay transacciones para generar el reporte.");
+                showNotification("No hay transacciones para generar el reporte.", "info");
                 return;
             }
 
             const doc = new jsPDF();
             const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
             const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
-            let startY = 20; // Margen superior inicial
+            let startY = 20;
 
-            // Título del reporte
             doc.setFontSize(18);
             doc.text("Reporte Financiero", pageWidth / 2, startY, { align: 'center' });
             startY += 10;
 
-            // Resumen Financiero
             doc.setFontSize(12);
             doc.text(`Ingresos Totales: ${totalIncomeEl.textContent}`, 14, startY);
             startY += 7;
             doc.text(`Egresos Totales: ${totalExpensesEl.textContent}`, 14, startY);
             startY += 7;
             doc.text(`Saldo Actual: ${currentBalanceEl.textContent}`, 14, startY);
-            startY += 15; // Espacio antes de la tabla
+            startY += 15;
 
-            // Preparar datos para la tabla
             const tableColumn = ["Tipo", "Descripción", "Categoría", "Monto (Efectivo)", "Cuotas", "Fecha"];
             const tableRows = [];
 
@@ -645,44 +708,27 @@
                 if (t.type === 'egreso' && t.isInstallment) {
                     installmentTextPDF = `${t.paidInstallments} de ${t.totalInstallments}`;
                 }
-
-                let amountTextPDF = formatCurrency(t.amount); // Usar la función de formato existente
+                let amountTextPDF = formatCurrency(t.amount);
                  if (t.type === 'egreso' && t.divisionFactor && t.divisionFactor > 1) {
-                    amountTextPDF += ` (${100/t.divisionFactor}%)`; // Agregar indicación de división
+                    amountTextPDF += ` (${100/t.divisionFactor}%)`;
                 }
-
-
                 const transactionData = [
-                    t.type.charAt(0).toUpperCase() + t.type.slice(1),
-                    t.description,
-                    t.category,
-                    amountTextPDF, // Monto formateado
-                    installmentTextPDF,
-                    formatDate(t.date) // Fecha formateada
+                    t.type.charAt(0).toUpperCase() + t.type.slice(1), t.description, t.category,
+                    amountTextPDF, installmentTextPDF, formatDate(t.date)
                 ];
                 tableRows.push(transactionData);
             });
 
-            // Crear la tabla con autoTable
             doc.autoTable({
-                head: [tableColumn],
-                body: tableRows,
-                startY: startY,
-                theme: 'grid', // Estilo de la tabla
-                headStyles: { fillColor: [22, 160, 133] }, // Color de encabezado (ej. verde azulado)
+                head: [tableColumn], body: tableRows, startY: startY,
+                theme: 'grid', headStyles: { fillColor: [22, 160, 133] },
                 styles: { fontSize: 8 },
-                columnStyles: {
-                     3: { halign: 'right' }, // Alinear monto a la derecha
-                     4: { halign: 'center' }, // Alinear cuotas al centro
-                     5: { halign: 'center' }  // Alinear fecha al centro
-                }
+                columnStyles: { 3: { halign: 'right' }, 4: { halign: 'center' }, 5: { halign: 'center' } }
             });
 
-            // Guardar el PDF
             doc.save('reporte_financiero.pdf');
         }
 
-        // Asignar evento al botón de generar PDF
         generatePdfBtn.addEventListener('click', generatePDF);
 
         // --- Inicialización ---
@@ -697,8 +743,7 @@
             populateCategoryOptions(categoryInput, initialType);
             
             const isEgreso = initialType === 'egreso';
-            installmentsSection.classList.toggle('hidden', !isEgreso);
-            expenseDivisionSection.classList.toggle('hidden', !isEgreso);
+            updateExpenseSectionsVisibility(isEgreso, expenseDivisionSection, installmentsSection); // <-- CAMBIO 4
             
             renderTransactions(); 
         });
